@@ -67,3 +67,5 @@ Tested with 3 concurrent worker processes against a live Postgres instance:
 Install: pip install fastapi uvicorn pg8000 python-dotenv sqlalchemy
 
 Set DATABASE_URL in a .env file, then run main.py with uvicorn, worker.py (one or more), and watchdog.py.
+
+Live demo: https://taskforge-astha-hrfvgjh2avfxhkd7.centralindia-01.azurewebsites.net/docs
