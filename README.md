@@ -69,3 +69,26 @@ Install: pip install fastapi uvicorn pg8000 python-dotenv sqlalchemy
 Set DATABASE_URL in a .env file, then run main.py with uvicorn, worker.py (one or more), and watchdog.py.
 
 Live demo: https://taskforge-astha-hrfvgjh2avfxhkd7.centralindia-01.azurewebsites.net/docs
+
+## Performance results
+
+Load-tested with Locust (20 concurrent users) against the local server, before and after adding connection pooling:
+
+| Metric | Before pooling | After pooling | Improvement |
+|---|---|---|---|
+| Median response time | 1600ms | 860ms | ~46% faster |
+| 95th percentile | 3800ms | 1500ms | ~61% faster |
+| 99th percentile | 4600ms | 1800ms | ~61% faster |
+| Throughput | 7.6 req/s | 10 req/s | ~32% higher |
+| Failure rate | 0% | 1% (4/372) | see note below |
+
+**Root cause identified:** the original implementation opened a brand-new database connection on every request, paying a fresh TCP+TLS handshake cost each time. Switching to a small (5-connection) pool created once at startup, and reused across requests, produced the improvement above.
+
+**Note on the 1% failure rate:** under 20 concurrent users, the fixed pool size of 5 connections is occasionally exhausted, causing brief request failures rather than queuing. A production version would either size the pool based on expected concurrency or use an async connection pool that queues requests instead of failing outright.
+
+## Known limitations & future improvements
+
+- The worker and watchdog processes are not containerized or deployed to Azure — only the producer API is, since a free-tier web app isn't suited to always-on background processes (a real deployment would use Container Apps or a dedicated worker service for these)
+- No priority queue — all jobs are processed in FIFO order; a priority column and an `ORDER BY priority, created_at` change would address job starvation for low-priority items under sustained load
+- The connection pool size (5) is fixed rather than dynamically sized based on load, as shown in the load-test results above
+- Docker support is written (see `Dockerfile`) but not run/verified in this environment, due to a hardware virtualization setting unrelated to the application itself
