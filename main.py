@@ -1,4 +1,4 @@
-import os
+﻿import os
 import time
 import json
 import logging
@@ -7,6 +7,7 @@ import pg8000.native
 from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -40,18 +41,30 @@ def return_connection(conn):
 
 class JobRequest(BaseModel):
     payload: dict
+    idempotency_key: Optional[str] = None
 
 @app.post("/jobs")
 def create_job(job: JobRequest):
     conn = get_pooled_connection()
     try:
+        if job.idempotency_key:
+            existing = conn.run(
+                "SELECT id, status FROM jobs WHERE idempotency_key = :key;",
+                key=job.idempotency_key
+            )
+            if existing:
+                job_id, status = existing[0]
+                logger.info(f"Idempotency key {job.idempotency_key} matched existing job {job_id}, not creating duplicate")
+                return {"id": job_id, "status": status, "duplicate": True}
+
         result = conn.run(
-            "INSERT INTO jobs (payload) VALUES (:payload) RETURNING id, status;",
-            payload=json.dumps(job.payload)
+            "INSERT INTO jobs (payload, idempotency_key) VALUES (:payload, :key) RETURNING id, status;",
+            payload=json.dumps(job.payload),
+            key=job.idempotency_key
         )
         job_id, status = result[0]
         logger.info(f"Job {job_id} created with status={status}")
-        return {"id": job_id, "status": status}
+        return {"id": job_id, "status": status, "duplicate": False}
     except Exception as e:
         logger.error(f"create_job failed: {e}")
         raise HTTPException(status_code=503, detail=f"Database error: {e}")
