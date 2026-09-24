@@ -21,7 +21,7 @@ def claim_job(conn):
     rows = conn.run("""
         SELECT id, payload, retry_count, max_retries FROM jobs
         WHERE status = 'queued'
-        ORDER BY created_at
+        ORDER BY priority ASC, created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED;
     """)

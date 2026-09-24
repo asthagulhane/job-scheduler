@@ -42,6 +42,7 @@ def return_connection(conn):
 class JobRequest(BaseModel):
     payload: dict
     idempotency_key: Optional[str] = None
+    priority: int = 5
 
 @app.post("/jobs")
 def create_job(job: JobRequest):
@@ -58,9 +59,10 @@ def create_job(job: JobRequest):
                 return {"id": job_id, "status": status, "duplicate": True}
 
         result = conn.run(
-            "INSERT INTO jobs (payload, idempotency_key) VALUES (:payload, :key) RETURNING id, status;",
+            "INSERT INTO jobs (payload, idempotency_key, priority) VALUES (:payload, :key, :priority) RETURNING id, status;",
             payload=json.dumps(job.payload),
-            key=job.idempotency_key
+            key=job.idempotency_key,
+            priority=job.priority
         )
         job_id, status = result[0]
         logger.info(f"Job {job_id} created with status={status}")
@@ -97,3 +99,6 @@ def stats():
         }
     finally:
         return_connection(conn)
+
+
+
