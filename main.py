@@ -100,5 +100,24 @@ def stats():
     finally:
         return_connection(conn)
 
-
-
+@app.get("/jobs/{job_id}")
+def get_job(job_id: int):
+    conn = get_pooled_connection()
+    try:
+        rows = conn.run(
+            "SELECT id, payload, status, retry_count, max_retries, created_at FROM jobs WHERE id = :id;",
+            id=job_id
+        )
+        if not rows:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        job_id_result, payload, status, retry_count, max_retries, created_at = rows[0]
+        return {
+            "id": job_id_result,
+            "payload": payload,
+            "status": status,
+            "retry_count": retry_count,
+            "max_retries": max_retries,
+            "created_at": str(created_at)
+        }
+    finally:
+        return_connection(conn)
