@@ -1,4 +1,4 @@
-# Job Scheduler
+﻿# Job Scheduler
 
 A distributed job queue backed directly by PostgreSQL — no external message broker (no Redis, no RabbitMQ, no SQS). The database *is* the queue.
 
@@ -89,6 +89,12 @@ Load-tested with Locust (20 concurrent users) against the local server, before a
 ## Known limitations & future improvements
 
 - The worker and watchdog processes are not containerized or deployed to Azure — only the producer API is, since a free-tier web app isn't suited to always-on background processes (a real deployment would use Container Apps or a dedicated worker service for these)
-- No priority queue — all jobs are processed in FIFO order; a priority column and an `ORDER BY priority, created_at` change would address job starvation for low-priority items under sustained load
 - The connection pool size (5) is fixed rather than dynamically sized based on load, as shown in the load-test results above
 - Docker support is written (see `Dockerfile`) but not run/verified in this environment, due to a hardware virtualization setting unrelated to the application itself
+
+## Additional features
+
+- **Idempotency keys:** `POST /jobs` accepts an optional `idempotency_key`. A UNIQUE constraint in Postgres guarantees a repeated submission returns the original job (`"duplicate": true`) instead of creating a second one.
+- **Priority queue:** each job has a `priority` (default 5, lower = more urgent). Workers claim with `ORDER BY priority ASC, created_at ASC`. Caveat: strict priority ordering can starve low-priority jobs under sustained high-priority load; a production version would add aging or reserve some worker capacity for low-priority work.
+- **Job lookup:** `GET /jobs/{job_id}` returns one job's status, retry count and payload, or a 404.
+- **Live dashboard:** `/dashboard` shows queue counts (queued, running, done, dead letter), refreshing every 2 seconds from `/stats`.
