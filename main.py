@@ -121,3 +121,9 @@ def get_job(job_id: int):
         }
     finally:
         return_connection(conn)
+
+from fastapi.responses import FileResponse
+
+@app.get("/dashboard")
+def dashboard():
+    return FileResponse("dashboard.html")
