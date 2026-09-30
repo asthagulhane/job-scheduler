@@ -1,0 +1,34 @@
+-- Idempotent migration: safe to run on your existing Neon DB and on a fresh test DB.
+CREATE TABLE IF NOT EXISTS jobs (
+    id               BIGSERIAL PRIMARY KEY,
+    payload          JSONB       NOT NULL,
+    status           TEXT        NOT NULL DEFAULT 'queued',   -- queued | running | done | dead_letter
+    priority         INT         NOT NULL DEFAULT 5,
+    retry_count      INT         NOT NULL DEFAULT 0,
+    max_retries      INT         NOT NULL DEFAULT 3,
+    locked_by        TEXT,
+    lease_expires_at TIMESTAMPTZ,
+    idempotency_key  TEXT,
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Fencing token: bumped on every claim. Every write from a worker must present it.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS claim_token BIGINT NOT NULL DEFAULT 0;
+
+-- Real uniqueness for idempotency keys (NULLs are allowed many times in Postgres).
+CREATE UNIQUE INDEX IF NOT EXISTS jobs_idempotency_key_uq ON jobs (idempotency_key);
+
+-- Makes the claim query an index scan instead of a sort over the whole table.
+CREATE INDEX IF NOT EXISTS jobs_claim_idx ON jobs (priority, created_at) WHERE status = 'queued';
+-- Makes the watchdog scan cheap.
+CREATE INDEX IF NOT EXISTS jobs_lease_idx ON jobs (lease_expires_at) WHERE status = 'running';
+
+-- Audit log: one row per *successful, fenced* completion. Used by the chaos test.
+CREATE TABLE IF NOT EXISTS job_completions (
+    id           BIGSERIAL PRIMARY KEY,
+    job_id       BIGINT      NOT NULL,
+    claim_token  BIGINT      NOT NULL,
+    worker_id    TEXT        NOT NULL,
+    completed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS job_completions_job_idx ON job_completions (job_id);

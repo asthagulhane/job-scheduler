@@ -37,21 +37,40 @@ def claim_job(conn):
     return job_id, payload, retry_count, max_retries
 
 def heartbeat(conn, job_id):
-    conn.run("UPDATE jobs SET lease_expires_at = now() + interval '15 seconds' WHERE id = :id;", id=job_id)
+    result = conn.run(
+        "UPDATE jobs SET lease_expires_at = now() + interval '15 seconds' WHERE id = :id AND locked_by = :worker RETURNING id;",
+        id=job_id, worker=worker_id
+    )
+    if not result:
+        raise RuntimeError(f"Lost lease on job {job_id} — another worker may own it now")
 
 def mark_done(conn, job_id):
-    conn.run("UPDATE jobs SET status = 'done' WHERE id = :id;", id=job_id)
+    result = conn.run(
+        "UPDATE jobs SET status = 'done' WHERE id = :id AND locked_by = :worker RETURNING id;",
+        id=job_id, worker=worker_id
+    )
+    if not result:
+        print(f"[{worker_id}] lost lease on job {job_id} before finishing — not marking done")
 
 def mark_failed(conn, job_id, retry_count, max_retries):
     if retry_count + 1 >= max_retries:
-        conn.run("UPDATE jobs SET status = 'dead_letter', retry_count = retry_count + 1 WHERE id = :id;", id=job_id)
-        print(f"[{worker_id}] job {job_id} moved to dead_letter after {retry_count + 1} attempts")
-    else:
-        conn.run(
-            "UPDATE jobs SET status = 'queued', retry_count = retry_count + 1, locked_by = NULL, lease_expires_at = NULL WHERE id = :id;",
-            id=job_id
+        result = conn.run(
+            "UPDATE jobs SET status = 'dead_letter', retry_count = retry_count + 1 WHERE id = :id AND locked_by = :worker RETURNING id;",
+            id=job_id, worker=worker_id
         )
-        print(f"[{worker_id}] job {job_id} failed, requeued (attempt {retry_count + 1})")
+        if result:
+            print(f"[{worker_id}] job {job_id} moved to dead_letter after {retry_count + 1} attempts")
+        else:
+            print(f"[{worker_id}] lost lease on job {job_id} — not touching it")
+    else:
+        result = conn.run(
+            "UPDATE jobs SET status = 'queued', retry_count = retry_count + 1, locked_by = NULL, lease_expires_at = NULL WHERE id = :id AND locked_by = :worker RETURNING id;",
+            id=job_id, worker=worker_id
+        )
+        if result:
+            print(f"[{worker_id}] job {job_id} failed, requeued (attempt {retry_count + 1})")
+        else:
+            print(f"[{worker_id}] lost lease on job {job_id} — not touching it")
 
 def do_work(conn, job_id):
     # simulated work: heartbeat every 5s across a 12s task, ~20% simulated failure chance
