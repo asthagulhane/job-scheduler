@@ -4,3 +4,4 @@ __pycache__/chaos_logs/
 chaos_logs/
 __pycache__/
 *.pyc
+chaos_logs/
